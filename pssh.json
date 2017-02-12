@@ -1,0 +1,18 @@
+{
+    "args": [
+        {
+            "hosts": "127.0.0.1",
+            "nmap_command": "-sn",
+            "ssh_port": null,
+            "ssh_command": "ls -la",
+            "scp_local_to_remote": {
+                "local": "",
+                "remote": ""
+            },
+            "scp_remote_to_local": {
+                "local": "",
+                "remote": ""
+            }
+        }
+    ]
+}
