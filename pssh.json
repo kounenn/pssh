@@ -3,20 +3,30 @@
         {
             "hosts": "127.0.0.1",
             "nmap_command": "-sn",
-            "ssh_port": null,
-            "ssh_user": "",
-            "ssh_passwd": "",
-            "ssh_public_key": "",
-            "ssh_private_key": "",
-            "ssh_command": "ls -la",
-            "scp_local_to_remote": {
-                "local": "",
-                "remote": ""
-            },
-            "scp_remote_to_local": {
-                "local": "",
-                "remote": ""
-            }
+            "port": 22,
+            "user": null,
+            "password": null,
+            "pkey": null,
+            "proxy_host": null,
+            "proxy_port": null,
+            "proxy_user": null,
+            "proxy_password": null,
+            "proxy_pkey": null,
+            "ssh_commands": [
+                null
+            ],
+            "file_local_to_remote": [
+                {
+                    "local": null,
+                    "remote": null
+                }
+            ],
+            "file_remote_to_local": [
+                {
+                    "local": null,
+                    "remote": null
+                }
+            ]
         }
     ]
 }
