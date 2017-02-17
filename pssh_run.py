@@ -1,8 +1,7 @@
 #! python2
 
 """
-exec script
-"""
+exec script"""
 from __future__ import print_function
 
 import json
@@ -26,11 +25,9 @@ def main(argv):
     if not argv:
         argv.append('pssh_test.json')
     args = parse(argv[0])
-    index = 1
-    for params in args:
-        print("start task ", index)
-        index += 1
-        params['hosts'] = exec_nmap(**params)
+    for index, params in enumerate(args):
+        print("start task [{0}]".format(index+1))
+        #params['hosts'] = exec_nmap(**params)
         exec_pssh(**params)
 
 
@@ -41,7 +38,7 @@ def parse(file):
     try:
         with open(file) as config_file:
             config_json = json.load(config_file)
-    except(IOError, json.JSONDecodeError) as error:
+    except(IOError, ValueError) as error:
         print(error)
         sys.exit(1)
     return config_json['args']
@@ -90,40 +87,48 @@ def exec_pssh(**args):
     del args['file_remote_to_local']
 
     psshclient = ParallelSSHClient(**args)
-
-    if isinstance(commands_before, list):
-        for cmd in commands_before:
-            exec_cmd(psshclient, cmd)
-    else:
-        exec_cmd(psshclient, commands_before)
-
     utils.enable_logger(utils.logger)
+
+    exec_ssh_cmd(psshclient, commands_before)
     exec_scpfuc(file_local_to_remote, psshclient.copy_file)
     exec_scpfuc(file_remote_to_local, psshclient.copy_remote_file)
-    del utils.logger
+    exec_ssh_cmd(psshclient, commands_after)
 
-    if isinstance(commands_after, list):
-        for cmd in commands_after:
-            exec_cmd(psshclient, cmd)
+    del psshclient
+
+
+def exec_ssh_cmd(client, cmds):
+    """
+        executing ssh command
+    """
+    def exec_per_cmd(cmd):
+        """
+            executing per command
+        """
+        if not cmd:
+            return
+        try:
+            output = client.run_command(cmd)
+        except (AuthenticationException, UnknownHostException, ConnectionErrorException):
+            pass
+        for host in output:
+            while True:
+                out = next(output[host]['stdout'], None)
+                err = next(output[host]['stderr'], None)
+                if (out is None) and (err is None):
+                    break
+            '''
+            if output[host]['exception']:
+                print("[{0}]:{1}".format(host, output[host]['exception']))
+            for line in output[host]['stdout']:
+                print("[{0}]:{1}".format(host, line))
+            '''
+        client.join(output)
+    if isinstance(cmds, list):
+        for cmd in cmds:
+            exec_per_cmd(cmd)
     else:
-        exec_cmd(psshclient, commands_after)
-
-def exec_cmd(client, cmd):
-    """
-        executing command
-    """
-    if not cmd:
-        return
-    try:
-        output = client.run_command(cmd)
-    except (AuthenticationException, UnknownHostException, ConnectionErrorException):
-        pass
-    for host in output:
-        if output[host]['exception']:
-            print("[{0}]:{1}".format(host, output[host]['exception']))
-        for line in output[host]['stdout']:
-            print("[{0}]:{1}".format(host, line))
-    client.join(output)
+        exec_per_cmd(cmds)
 
 
 def exec_scpfuc(files, scp_fuc):
