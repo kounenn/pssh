@@ -23,6 +23,8 @@ def main(argv):
     """
         main
     """
+    if not argv:
+        argv.append('pssh_test.json')
     args = parse(argv[0])
     index = 1
     for params in args:
@@ -32,12 +34,16 @@ def main(argv):
         exec_pssh(**params)
 
 
-def parse(file='pssh_test.json'):
+def parse(file):
     """
         parsing json configurtion
     """
-    with open(file) as config_file:
-        config_json = json.load(config_file)
+    try:
+        with open(file) as config_file:
+            config_json = json.load(config_file)
+    except(IOError, json.JSONDecodeError) as error:
+        print(error)
+        sys.exit(1)
     return config_json['args']
 
 
@@ -69,34 +75,38 @@ def exec_pssh(**args):
     if not hosts:
         print("no host is up")
         return
+    args['pkey'] = verify_pkey(args['pkey'])
+    args['proxy_pkey'] = verify_pkey(args['pkey'])
 
-    pkeyfile = os.path.abspath(args['pkey'])
-    proxy_pkeyfile = os.path.abspath(args['proxy_pkey'])
-
-    args['pkey'] = verify_pkey(pkeyfile)
-    args['proxy_pkey'] = verify_pkey(proxy_pkeyfile)
-
-    commands = args['ssh_commands']
-    scp_local_to_remote = args['scp_local_to_remote']
-    scp_remote_to_local = args['scp_remote_to_local']
+    commands_before = args['ssh_commands_before']
+    commands_after = args['ssh_commands_after']
+    file_local_to_remote = args['file_local_to_remote']
+    file_remote_to_local = args['file_remote_to_local']
 
     del args['nmap_command']
-    del args['ssh_commands']
-    del args['scp_local_to_remote']
-    del args['scp_remote_to_local']
+    del args['ssh_commands_before']
+    del args['ssh_commands_after']
+    del args['file_local_to_remote']
+    del args['file_remote_to_local']
 
     psshclient = ParallelSSHClient(**args)
 
-    if isinstance(commands, list):
-        for cmd in commands:
+    if isinstance(commands_before, list):
+        for cmd in commands_before:
             exec_cmd(psshclient, cmd)
     else:
-        exec_cmd(psshclient, commands)
+        exec_cmd(psshclient, commands_before)
 
     utils.enable_logger(utils.logger)
-    exec_scpfuc(scp_local_to_remote, psshclient.copy_file)
-    exec_scpfuc(scp_remote_to_local, psshclient.copy_remote_file)
+    exec_scpfuc(file_local_to_remote, psshclient.copy_file)
+    exec_scpfuc(file_remote_to_local, psshclient.copy_remote_file)
+    del utils.logger
 
+    if isinstance(commands_after, list):
+        for cmd in commands_after:
+            exec_cmd(psshclient, cmd)
+    else:
+        exec_cmd(psshclient, commands_after)
 
 def exec_cmd(client, cmd):
     """
@@ -134,7 +144,8 @@ def exec_scpfuc(files, scp_fuc):
         except(IOError, OSError):
             pass
         for greenlet in greenlets:
-            print(greenlet.value, greenlet.exception)
+            if greenlet.exception:
+                print(greenlet, greenlet.exception)
 
     if isinstance(files, list):
         for afile in files:
@@ -148,6 +159,7 @@ def verify_pkey(pkeyfile):
         return pkey object
     """
     if pkeyfile:
+        pkeyfile = os.path.abspath(pkeyfile)
         try:
             pkey = paramiko.RSAKey.from_private_key_file(pkeyfile)
         except(IOError, paramiko.PasswordRequiredException, paramiko.SSHException) as error:

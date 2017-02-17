@@ -12,7 +12,10 @@
             "proxy_user": null,
             "proxy_password": null,
             "proxy_pkey": null,
-            "ssh_commands": [
+            "ssh_commands_before": [
+                null
+            ],
+            "ssh_commands_after": [
                 null
             ],
             "file_local_to_remote": [
