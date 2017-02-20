@@ -1,33 +1,43 @@
 {
     "args": [
         {
-            "hosts": "127.0.0.1",
+            "hosts": "host_name_or_ip",
             "nmap_command": "-sn",
             "port": 22,
-            "user": null,
-            "password": null,
-            "pkey": null,
-            "proxy_host": null,
-            "proxy_port": null,
-            "proxy_user": null,
-            "proxy_password": null,
-            "proxy_pkey": null,
+            "user": "username",
+            "password": "password",
+            "pkey": "path_to_private_key",
+            "proxy_host": "proxy_hostname_or_ip",
+            "proxy_port": 22,
+            "proxy_user": "username",
+            "proxy_password": "password",
+            "proxy_pkey": "path_to_private_key",
             "ssh_commands_before": [
-                null
+                "ls -la",
+                "uname -a"
             ],
             "ssh_commands_after": [
-                null
+                "ls -la",
+                "uname -a"
             ],
             "file_local_to_remote": [
                 {
-                    "local": null,
-                    "remote": null
+                    "local": "path_to_file1_for_upload",
+                    "remote": "path_to_file1_for_store"
+                },
+                {
+                    "local": "path_to_file2_for_upload",
+                    "remote": "path_to_file2_on_remote"
                 }
             ],
             "file_remote_to_local": [
                 {
-                    "local": null,
-                    "remote": null
+                    "local": "path_to_file1_on_loacl",
+                    "remote": "path_to_file1_for_download"
+                },
+                {
+                    "local": "path_to_file2_on_loacl",
+                    "remote": "path_to_file2_for_download"
                 }
             ]
         }

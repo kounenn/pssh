@@ -1,7 +1,7 @@
 #! python2
-
 """
-exec script"""
+exec script
+"""
 from __future__ import print_function
 
 import json
@@ -15,19 +15,16 @@ from pssh.exceptions import (AuthenticationException, ConnectionErrorException,
                              UnknownHostException)
 import paramiko
 
-#from pprint import pprint
-
-
 def main(argv):
     """
         main
     """
     if not argv:
-        argv.append('pssh_test.json')
+        argv.append('pssh.json')
     args = parse(argv[0])
     for index, params in enumerate(args):
         print("start task [{0}]".format(index+1))
-        #params['hosts'] = exec_nmap(**params)
+        params['hosts'] = exec_nmap(**params)
         exec_pssh(**params)
 
 
@@ -117,12 +114,6 @@ def exec_ssh_cmd(client, cmds):
                 err = next(output[host]['stderr'], None)
                 if (out is None) and (err is None):
                     break
-            '''
-            if output[host]['exception']:
-                print("[{0}]:{1}".format(host, output[host]['exception']))
-            for line in output[host]['stdout']:
-                print("[{0}]:{1}".format(host, line))
-            '''
         client.join(output)
     if isinstance(cmds, list):
         for cmd in cmds:
