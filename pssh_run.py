@@ -1,168 +1,213 @@
-#! python2
-"""
-exec script
-"""
-from __future__ import print_function
-
 import json
 import os
 import sys
+import logging
+import socket
+import time
 
-import nmap
 from gevent import joinall
 from pssh import ParallelSSHClient, utils
-from pssh.exceptions import (AuthenticationException, ConnectionErrorException,
-                             UnknownHostException)
+from pssh.exceptions import (
+    AuthenticationException, ConnectionErrorException, UnknownHostException)
 import paramiko
 
-def main(argv):
-    """
-        main
-    """
-    if not argv:
-        argv.append('pssh.json')
-    args = parse(argv[0])
-    for index, params in enumerate(args):
-        print("start task [{0}]".format(index+1))
-        params['hosts'] = exec_nmap(**params)
-        exec_pssh(**params)
+from ping import parse_ip, find_ip
+
+CONFIRM = False
 
 
-def parse(file):
+class SSHargs():
+    def __init__(self, _dict={}):
+        self._dict = _dict
+
+    def get(self, k, t):
+        v = self._dict.get(k)
+        if v is None:
+            return t()
+        elif isinstance(v, t):
+            return v
+        else:
+            raise TypeError(
+                "Invaild args format, {} should be {}".format(v, t))
+
+
+def _confirm():
+    if CONFIRM:
+        if input('confirm operation, enter any key to continue, enter n/N to exit: ').strip().upper() == 'N':
+            sys.exit(2)
+
+
+def parse_json(file):
     """
         parsing json configurtion
     """
     try:
         with open(file) as config_file:
-            config_json = json.load(config_file)
-    except(IOError, ValueError) as error:
-        print(error)
-        sys.exit(1)
-    return config_json['args']
+            config = json.load(config_file)
+    except IOError as e:
+        utils.logger.error(e)
+        raise
+    except json.JSONDecodeError:
+        utils.logger.error(
+            "Invaild json format, Please check {}".format(os.path.basename(file)))
+        raise
+
+    return config
 
 
-def exec_nmap(**args):
+def exec_pssh(args, ping_hosts):
     """
-        executing nmap to scan ip
+    exec parallel-ssh process
     """
-    nmap_scan = nmap.PortScanner()
-    hosts = args['hosts']
-    command = args['nmap_command']
 
-    nmap_scan.scan(hosts=hosts, arguments=command)
-    hosts_list = [(x, nmap_scan[x]['status']['state'])
-                  for x in nmap_scan.all_hosts()]
-    hosts = []
-    for host, status in hosts_list:
-        print('{0} is {1}'.format(host, status))
-        if status == 'up':
-            hosts.append(host)
-    return hosts
+    try:
+        if not args:
+            print(args)
+            raise ValueError('args is empty !')
+        ssh_args = SSHargs(args)
 
+        client = ssh_args.get('client', dict)
+        hosts = client.get('hosts',[])
+        if not isinstance(hosts,list):
+            raise TypeError
+        hosts.extend(ping_hosts)
+        client['hosts'] = hosts
 
-def exec_pssh(**args):
-    """
-        executing parallel-ssh process
-    """
-    hosts = args['hosts']
+        if not hosts:
+            raise ValueError('host list is empty !')
 
-    if not hosts:
-        print("no host is up")
-        return
-    args['pkey'] = verify_pkey(args['pkey'])
-    args['proxy_pkey'] = verify_pkey(args['pkey'])
+        if 'pkey' in client:
+            client['pkey'] = verify_pkey(client['pkey'])
+        if 'proxy_pkey' in client:
+            client['proxy_pkey'] = verify_pkey(client['proxy_pkey'])
+        
+        client['channel_timeout'] = client.get('channel_timeout',10) 
 
-    commands_before = args['ssh_commands_before']
-    commands_after = args['ssh_commands_after']
-    file_local_to_remote = args['file_local_to_remote']
-    file_remote_to_local = args['file_remote_to_local']
+        commands_before = ssh_args.get('commands_before', list)
+        commands_after = ssh_args.get('commands_after', list)
+        file_local_to_remote = ssh_args.get('file_local_to_remote', list)
+        file_remote_to_local = ssh_args.get('file_remote_to_local', list)
 
-    del args['nmap_command']
-    del args['ssh_commands_before']
-    del args['ssh_commands_after']
-    del args['file_local_to_remote']
-    del args['file_remote_to_local']
+    except(TypeError, ValueError) as e:
+        utils.logger.error(e)
+        raise
 
-    psshclient = ParallelSSHClient(**args)
-    utils.enable_logger(utils.logger)
+    psshclient = ParallelSSHClient(**client)
 
-    exec_ssh_cmd(psshclient, commands_before)
-    exec_scpfuc(file_local_to_remote, psshclient.copy_file)
-    exec_scpfuc(file_remote_to_local, psshclient.copy_remote_file)
-    exec_ssh_cmd(psshclient, commands_after)
+    for cmd in commands_before:
+        _confirm()
+        exec_ssh_cmd(psshclient, cmd)
+
+    for f in file_local_to_remote:
+        _confirm()
+        exec_scpfuc(f, psshclient.copy_file)
+
+    for f in file_remote_to_local:
+        _confirm()
+        exec_scpfuc(f, psshclient.copy_remote_file)
+
+    for cmd in commands_after:
+        _confirm()
+        exec_ssh_cmd(psshclient, cmd)
 
     del psshclient
 
+    return True
 
-def exec_ssh_cmd(client, cmds):
+
+def exec_ssh_cmd(client, cmd):
     """
-        executing ssh command
+    exec ssh command
     """
-    def exec_per_cmd(cmd):
-        """
-            executing per command
-        """
-        if not cmd:
-            return
+    try:
+        utils.logger.info('run [{}]'.format(cmd))
+        output = client.run_command(cmd)
+    except (AuthenticationException, UnknownHostException, ConnectionErrorException) as e:
+        utils.logger.warning(e)
+        return False
+
+    for host in output:
         try:
-            output = client.run_command(cmd)
-        except (AuthenticationException, UnknownHostException, ConnectionErrorException):
-            pass
-        for host in output:
-            while True:
-                out = next(output[host]['stdout'], None)
-                err = next(output[host]['stderr'], None)
-                if (out is None) and (err is None):
-                    break
-        client.join(output)
-    if isinstance(cmds, list):
-        for cmd in cmds:
-            exec_per_cmd(cmd)
-    else:
-        exec_per_cmd(cmds)
+            for line in output[host].stdout:
+                pass
+        except socket.timeout:
+            utils.logger.warning("run [{}] on [{}] raise an TimeoutError".format(cmd,host))
+            continue
+    return True
 
 
 def exec_scpfuc(files, scp_fuc):
     """
-        utils function
+    exec function for files
     """
-    def exec_per_file(files):
-        """
-            executing fuction
-        """
-        if not files:
-            return
-        local = os.path.abspath(files['local'])
-        remote = files['remote']
-        greenlets = scp_fuc(local_file=local, remote_file=remote, recurse=True)
-        try:
-            joinall(greenlets, raise_error=True)
-        except(IOError, OSError):
-            pass
-        for greenlet in greenlets:
-            if greenlet.exception:
-                print(greenlet, greenlet.exception)
+    local = files.get('local',None)
+    remote = files.get('remote',None)
 
-    if isinstance(files, list):
-        for afile in files:
-            exec_per_file(afile)
+    if local and remote:
+        local = os.path.abspath(local)     
     else:
-        exec_per_file(files)
+        return False
+
+    greenlets = scp_fuc(local_file=local, remote_file=remote, recurse=True)
+
+    try:
+        joinall(greenlets, raise_error=True)
+    except(IOError, OSError, TypeError) as e:
+        utils.logger.warning("operation files fail\n", e)
+        return False
+
+    return True
 
 
 def verify_pkey(pkeyfile):
     """
-        return pkey object
+    return pkey object
     """
     if pkeyfile:
         pkeyfile = os.path.abspath(pkeyfile)
         try:
             pkey = paramiko.RSAKey.from_private_key_file(pkeyfile)
         except(IOError, paramiko.PasswordRequiredException, paramiko.SSHException) as error:
-            print("[Reson]:", error)
+            utils.logger.warning(('[Reson]:', error))
             return None
         return pkey
 
 
+def main():
+    """
+        main
+    """
+    config = parse_json('config.json')
+    logging.basicConfig(level = logging.INFO,filename='log.log', filemode='w')
+    utils.enable_logger(utils.logger)
+
+    global CONFIRM 
+    CONFIRM = config.get('confirm',False)
+
+    for cf in config.get('tasks',[]):
+        config = parse_json(cf)
+        ip_list = []
+        
+        timer = config.get('timer',0)
+        for n in range(timer):
+            print('wating {:04}s to run task [{}]\r'.format(timer-n,cf),end='')
+            time.sleep(1)
+        else:
+            print()
+        for ip_str in config.get('ping',[]):
+            ip_list.extend(find_ip(parse_ip(ip_str)))
+        if exec_pssh(config, ip_list):
+            utils.logger.info("[{}] succeed !".format(cf))
+        else:
+            utils.logger.warning("[{}] failed !")
+
+
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:]))
+    try:
+        main()
+    except Exception as e:
+        utils.logger.error(e,sys.int_info)
+        utils.logger.error("Exec failure !")
+    input("press Enter to exit")
+    sys.exit(0)
+    
